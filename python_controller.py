@@ -12,8 +12,11 @@ from controller import *
 class RobotState(Enum):
     NO_WALL = 0,
     ONE_WALL = 1,
-    TWO_FRONT_WALLS = 2.1,
-    TWO_ADJACENT_WALLS = 2.2,
+    RIGHT_LEFT = 2.1,
+    UP_RIGHT = 2.3,
+    RIGHT_DOWN = 2.4,
+    DOWN_LEFT = 2.5,
+    LEFT_UP = 2.6,
     THREE_WALLS = 3
 
 
@@ -28,10 +31,34 @@ constants = {
     'normal_speed': 100,
     'epsilon_angle': 0.01,
     'eps': 1e-9,
-    'wall_sensor_threshold': 200
+    'wall_sensor_threshold': 100,
+    'wall_centimeters_threshold': 3,
+    'edge_detection_turn': 5
 }
 
 sensors = {}
+
+min_dist = [
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365],
+    [75, 105, 200, 475, 1365]
+]
+
+max_dist = [
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665],
+    [117, 165, 265, 575, 1665]
+]
 
 
 def compute_odometry(robot):
@@ -115,29 +142,80 @@ def setup(robot):
         do_action(robot, Action.STOP)
 
 
-def get_robot_state(robot):
+def get_centimeters(robot):
+    values = [sensors['distance_sensor'][i].getValue() for i in range(8)]
+    # for i in range(8):
+    #     log('sensor #{0} value: {1}'.format(i, values[i]))
+    centimeters = [10 for i in range(8)]
+    n = len(min_dist[0])
+    for i in range(8):
+        value = values[i]
+        for j in range(n):
+            if cmp(value, min_dist[i][j]) >= 0 and cmp(value, max_dist[i][j]) <= 0:
+                centimeters[i] = n + 1 - (j + 1)
+        for j in range(n - 1):
+            if cmp(value, max_dist[i][j]) >= 0 and cmp(value, min_dist[i][j + 1]) <= 0:
+                centimeters[i] = n + 1 - (j + 1.5)
+        if cmp(value, max_dist[i][n - 1]) > 0:
+            centimeters[i] = 0
+    return centimeters
+
+
+def get_robot_state(robot, debug=False):
     # TODO
     state = RobotState.NO_WALL
-    log('declared state: {0}'.format(state))
-    return state
+
+    values = get_centimeters(robot)
+    if debug:
+        for i in range(8):
+            log('centimeter from sensor #{0} is {1}'.format(i, values[i]))
+    # three walls
+    # TODO
+
+    # two walls
+    # RIGHT_UP
+    if cmp(values[0], constants['wall_centimeters_threshold']) < 0 \
+            and cmp(values[2], constants['wall_centimeters_threshold']) < 0:
+        return RobotState.UP_RIGHT
+    if cmp(values[2], constants['wall_centimeters_threshold']) < 0 \
+            and cmp(values[3], constants['wall_centimeters_threshold']) < 0:
+        return RobotState.RIGHT_DOWN
+    if cmp(values[4], constants['wall_centimeters_threshold']) < 0 \
+            and cmp(values[5], constants['wall_centimeters_threshold']) < 0:
+        return RobotState.DOWN_LEFT
+    if cmp(values[5], constants['wall_centimeters_threshold']) < 0 \
+            and cmp(values[7], constants['wall_centimeters_threshold']) < 0:
+        return RobotState.LEFT_UP
+    if cmp(values[2], constants['wall_centimeters_threshold']) < 0 \
+            and cmp(values[5], constants['wall_centimeters_threshold']) < 0:
+        return RobotState.RIGHT_LEFT
+
+    # one wall
+    for value in values:
+        if cmp(value, constants['wall_centimeters_threshold']) < 0:
+            return RobotState.ONE_WALL
+
+    return RobotState.NO_WALL
 
 
 def corner_found(state):
-    return state == RobotState.TWO_ADJACENT_WALLS or state == RobotState.THREE_WALLS
+    return not (state == RobotState.NO_WALL or state == RobotState.ONE_WALL)
 
 
+# stop watch
 class StopWatch:
     def __init__(self):
         self.timer = time.clock()
 
     def get_time_seconds(self):
-        log('timer: {0}s'.format(time.clock() - self.timer))
+        # log('timer: {0}s'.format(time.clock() - self.timer))
         return time.clock() - self.timer
 
     def begin(self):
         self.timer = time.clock()
 
 
+# all types of action that robot can do
 class Action(Enum):
     MOVE_FORWARD = 0,
     TURN_RIGHT = 1,
@@ -148,6 +226,8 @@ class Action(Enum):
     EPSILON_TURN_LEFT = 6
 
 
+# status of the return values
+# can be used for precising the return value
 class Status:
     def __init__(self, verdict, message=None):
         self.verdict = verdict
@@ -157,11 +237,14 @@ class Status:
         log('verdict is {0}, message is: "{1}"'.format(self.verdict, self.message))
 
 
+# one step of robot operation
 def robot_step(robot, speed):
     robot.setSpeed(speed[0], speed[1])
     robot.step(int(constants['time_step']))
 
 
+# doing the desired action, with specific speed and specific angle
+# the null action is included as STOP
 def do_action(robot, action, desired_speed=None, angle=constants['pi'] / 2):
     wheel_speed = constants['normal_speed']
     if desired_speed is not None:
@@ -203,6 +286,7 @@ def do_action(robot, action, desired_speed=None, angle=constants['pi'] / 2):
         do_action(robot, Action.STOP)
 
 
+# comparing the two double variables
 def my_cmp(a, b):
     if a + constants['eps'] < b:
         return -1
@@ -211,7 +295,10 @@ def my_cmp(a, b):
     return 0
 
 
+# piece of shit
+# should be deleted
 def compares_mod(mod, p1, p2):
+    # DELETED
     if mod == 0:
         return my_cmp(p1, constants['p-value']) > 0 or my_cmp(p2, constants['p-value']) > 0
     elif mod == 1:
@@ -222,48 +309,136 @@ def compares_mod(mod, p1, p2):
         return my_cmp(p1, constants['p-value']) > 0 and my_cmp(constants['p-value'], p2) > 0
 
 
+# opposite direction of the current direction
 def opposite_direction(direction):
     if direction == Action.TURN_LEFT:
         return Action.TURN_RIGHT
-    return Action.TURN_LEFT
+    if direction == Action.TURN_RIGHT:
+        return Action.TURN_LEFT
+    if direction == Action.EPSILON_TURN_LEFT:
+        return Action.EPSILON_TURN_RIGHT
+    if direction == Action.EPSILON_TURN_RIGHT:
+        return Action.EPSILON_TURN_LEFT
 
 
+def obstacle_avoid_forward_move(robot, properties):
+    centimeters = get_centimeters(robot)
+    # for i in range(8):
+    #     log('centimeter from sensor#{0} is {1}'.format(i, centimeters[i]))
+    if properties['turn'] >= constants['edge_detection_turn']:
+        # Edge detected
+        if properties['turn'] == constants['edge_detection_turn']:
+            properties['turn'] += 1
+            Status(True, 'Edge Detected').show_verdict()
+            do_action(robot, Action.EPSILON_TURN_LEFT)
+            do_action(robot, Action.EPSILON_TURN_LEFT)
+            properties['counter'] = 0
+            return
+        if cmp(centimeters[2], constants['wall_centimeters_threshold']) > 0:
+            if properties['turn'] == constants['edge_detection_turn'] + 1:
+                properties['turn'] += 1
+                properties['counter'] *= 2
+                do_action(robot, Action.MOVE_FORWARD)
+                return
+            else:
+                if properties['counter'] > 0:
+                    properties['counter'] -= 1
+                    do_action(robot, Action.MOVE_FORWARD)
+                else:
+                    properties['turn'] = 0
+                    return
+        else:
+            properties['counter'] += 1
+            do_action(robot, Action.MOVE_FORWARD)
+            return
+    if cmp(centimeters[1], 3) <= 0:
+        do_action(robot, Action.EPSILON_TURN_LEFT)
+        for i in range(2):
+            do_action(robot, Action.MOVE_FORWARD)
+        if properties['last_action'] is not Action.EPSILON_TURN_LEFT:
+            properties['turn'] += 1
+            properties['last_action'] = Action.EPSILON_TURN_LEFT
+        else:
+            properties['turn'] = 0
+        return
+    if cmp(centimeters[1], 5) > 0 \
+            and cmp(centimeters[2], constants['wall_centimeters_threshold']) <= 0:
+        do_action(robot, Action.EPSILON_TURN_RIGHT)
+        for i in range(2):
+            do_action(robot, Action.MOVE_FORWARD)
+        if properties['last_action'] is not Action.EPSILON_TURN_RIGHT:
+            properties['turn'] += 1
+            properties['last_action'] = Action.EPSILON_TURN_RIGHT
+        else:
+            properties['turn'] = 0
+        return
+    if cmp(centimeters[6], 3) <= 0:
+        do_action(robot, Action.EPSILON_TURN_RIGHT)
+        return
+    do_action(robot, Action.MOVE_FORWARD)
+    properties['last_action'] = Action.MOVE_FORWARD
+    properties['turn'] = 0
+
+
+def right_is_the_best(robot):
+    centimeters = get_centimeters(robot)
+    max_value = max(centimeters)
+    return centimeters[2] == max_value
+
+
+# justify robot alongside the wall
+# in order to keep the right side of the robot facing the wall
 def justify_robot(robot, initial_direction=Action.TURN_LEFT):
+    log('justify called!')
     max_value = -1234
+    centimeter_min_value = -1234
     direction = initial_direction
     angle = None
+    if right_is_the_best(robot):
+        return
     while True:
         do_action(robot, direction, angle=constants['epsilon_angle'],
-                  desired_speed=constants['normal_speed'] / 4)
+                  desired_speed=constants['normal_speed'])
         do_action(robot, Action.STOP)
         cur_value = sensors['distance_sensor'][2].getValue()
-        log('sensor value = {0:.02f}'.format(cur_value))
+        centimeters = get_centimeters(robot)
+        # log('sensor value = {0:.02f}'.format(cur_value))
         if max_value < cur_value:
             max_value = cur_value
+            centimeter_min_value = centimeters[2]
             angle = compute_odometry(robot)['da']
-        if max_value - cur_value > max_value * 0.95 and max_value > constants['wall_sensor_threshold']:
+        if max_value - cur_value > max_value * 0.95 \
+                and cmp(centimeter_min_value, constants['wall_centimeters_threshold']) <= 0:
             direction = opposite_direction(direction)
             break
-    log('max_value: {0}'.format(max_value))
+    # log('max_value: {0}'.format(max_value))
     cur_angle = compute_odometry(robot)['da']
     do_action(robot, direction, angle=math.fabs(cur_angle - angle),
               desired_speed=constants['normal_speed'])
     do_action(robot, Action.STOP)
 
 
+# find the first corner that the robot detects
 def find_corner(robot):
+    # TODO
+    properties = {
+        'turn': 0,
+        'last_action': None
+    }
     state = get_robot_state(robot)
     stop_watch = StopWatch()
-    stop_watch.begin()
     while True:
         if corner_found(state):
-            return Status(True, 'Corner Found')
+            return Status(True, 'Corner Found!')
         init_state = state
         while init_state == state:
-            do_action(robot, Action.MOVE_FORWARD)
+            obstacle_avoid_forward_move(robot, properties)
             state = get_robot_state(robot)
             if stop_watch.get_time_seconds() > constants['find_corner_timeout']:
-                return Status(False, 'Timeout Reached'.format())
+                return Status(False, 'Timeout Reached!')
+        for i in range(100):
+            obstacle_avoid_forward_move(robot, properties)
+        log('state = {0}'.format(state))
         if state == RobotState.NO_WALL:
             p = random()
             if p < constants['chance_to_turn_right']:
@@ -273,9 +448,11 @@ def find_corner(robot):
         # state != NO_WALL
         # face the right side of the robot to the walls
         justify_robot(robot)
-        state = get_robot_state(robot)
+        state = get_robot_state(robot, debug=True)
+        log('state after justify = {0}'.format(state))
 
 
+# testing moving and rotating
 def test(robot):
     stop_watch = StopWatch()
     while stop_watch.get_time_seconds() < .05:
@@ -288,14 +465,12 @@ def test(robot):
     do_action(robot, Action.STOP)
 
 
+# testing justify alongside the wall
 def test_justify(robot):
     justify_robot(robot)
 
 
-def test_wall_detection(robot):
-    pass
-
-
+# testing free rotation
 def test_free_rotation(robot):
     while True:
         do_action(robot, Action.TURN_RIGHT)
@@ -309,12 +484,21 @@ def stay_still(robot):
         do_action(robot, Action.STOP)
 
 
+def test_robot_state(robot):
+    while True:
+        state = get_robot_state(robot)
+        log('declared state: {0}'.format(state))
+        do_action(robot, Action.STOP)
+
+
 def main(robot):
     setup(robot)
-    test_justify(robot)
+    # test_robot_state(robot)
+    # test_justify(robot)
     # stay_still(robot)
     # test_free_rotation(robot)
-    # find_corner(robot)
+    status = find_corner(robot)
+    status.show_verdict()
     # test(robot)
     return 0
 
