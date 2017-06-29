@@ -76,6 +76,15 @@ def draw_lines(map_len, lines, map_length, line_color, width):
                          width)
 
 
+def add_text(map_len, text, pos=(0, 0), color=(255, 255, 0)):
+    my_font = pygame.font.SysFont("monospace", 15)
+    label = my_font.render(text, 1, color)
+    map_length = 666
+    map_length = (map_length, int(map_len[1] * map_length / map_len[0]))
+    position = (int(pos[1] * map_length[1] / map_len[1] + 1), int(pos[0] * map_length[0] / map_len[0] + 1))
+    screen.blit(label, position)
+
+
 def draw_map(map_len, obstacles_pos, points_pos=None, lines=None, path=None, circles=None):
     global screen
     pygame.init()
