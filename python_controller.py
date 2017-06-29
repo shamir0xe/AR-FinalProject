@@ -8,6 +8,8 @@ import time
 
 import copy
 
+import numpy as np
+
 import graphics
 from controller import *
 
@@ -31,7 +33,7 @@ constants = {
     'encoder_resolution': 159.23,
     'find_corner_timeout': 10,
     'chance_to_turn_right': 0.5,
-    'normal_speed': 100,
+    'normal_speed': 200,
     'epsilon_angle': 0.01,
     'eps': 1e-9,
     'wall_sensor_threshold': 100,
@@ -47,7 +49,13 @@ constants = {
     },
     'M': 1000,
     'epsilon_of_EG': 0.1,
-    'particle_update_threshold': 20
+    'particle_update_threshold': 7,
+    'turn_left_delta_x': 0,
+    'turn_right_delta_x': 8.5,
+    'move_particle_sigma': 2.2,
+    'transform_rate': 15 / 0.1203,
+    'delta_correction': 0.85,
+    'variance_threshold': 0.01
 }
 
 sensors = {}
@@ -86,7 +94,7 @@ def compute_odometry(robot):
     l, r = robot.getLeftEncoder(), robot.getRightEncoder()
     data = {
         'dl': l / constants['encoder_resolution'] * constants['wheel_radius'],
-        'dr': r / constants['encoder_resolution'] * constants['wheel_radius'],
+        'dr': r / constants['encoder_resolution'] * constants['wheel_radius']
     }
     data['da'] = (data['dr'] - data['dl']) / constants['axle_length']
     return data
@@ -133,6 +141,28 @@ def read_input():
                     obstacles.append((i, j))
                     # log('added point: [{0}, {1}]'.format(i, j))
                     board[i][j] = 1
+    color = [[0 for j in range(m)] for i in range(n)]
+    t = 2
+    for i in range(n):
+        for j in range(m):
+            if color[i][j] == 0 and board[i][j] == 0:
+                color[i][j] = 1
+                found = False
+                for k in range(-t * scale_factor, (t + 1) * scale_factor):
+                    for l in range(-t * scale_factor, (t + 1) * scale_factor):
+                        xx = i + k
+                        yy = j + l
+                        if 0 <= xx < n and 0 <= yy < m and board[xx][yy] == 1:
+                            found = True
+                            break
+                    if found:
+                        break
+                if found:
+                    color[i][j] = 2
+    for i in range(n):
+        for j in range(m):
+            if color[i][j] == 2:
+                board[i][j] = 1
 
 
 def log(text):
@@ -376,7 +406,7 @@ def opposite_direction(direction):
 
 def obstacle_avoid_forward_move(robot, centimeters=None):
     if centimeters is None:
-        centimeters = get_centimeters(robot, debug=True)
+        centimeters = get_centimeters(robot, debug=False)
     if cmp(centimeters[1], constants['sensor_one_wall_min']) <= 0:
         do_action(robot, Action.EPSILON_TURN_LEFT)
         return
@@ -479,24 +509,24 @@ def update_particles():
     for i in range(len(all_upgrades)):
         upgrades = all_upgrades[i]
         cur_picked = list()
-        while idx < len(random_set) and random_set[idx] - bef_sum < len(upgrades):
+        while idx < len(random_set) and 0 <= random_set[idx] - bef_sum < len(upgrades):
             cur_picked.append(upgrades[random_set[idx] - bef_sum])
             idx += 1
         bef_sum += len(upgrades)
         picked_particles.append(cur_picked)
 
-    # # remaining picks
-    # random_picked = constants['M'] - should_picked
-    # random_set = [randint(0, constants['M'] - 1) for i in range(random_picked)]
-    # random_set.sort()
-    # idx = 0
-    # bef_sum = 0
-    # for i in range(len(particles)):
-    #     while idx < len(random_set) and random_set[idx] - bef_sum < len(particles[i]):
-    #         picked_particles[i].append(particles[i][random_set[idx] - bef_sum])
-    #         idx += 1
-    #     bef_sum += len(particles[i])
-    #     particles[i].sort()
+    # remaining picks
+    random_picked = constants['M'] - should_picked
+    random_set = [randint(0, constants['M'] - 1) for i in range(random_picked)]
+    random_set.sort()
+    idx = 0
+    bef_sum = 0
+    for i in range(len(particles)):
+        while idx < len(random_set) and 0 <= random_set[idx] - bef_sum < len(particles[i]):
+            picked_particles[i].append(particles[i][random_set[idx] - bef_sum])
+            idx += 1
+        bef_sum += len(particles[i])
+        picked_particles[i].sort()
 
     particles = copy.deepcopy(picked_particles)
     show_particles()
@@ -514,6 +544,56 @@ def edge_right(robot):
             return
 
 
+def move_particles(new_values, backups=None, turn_mode=False):
+    global particles, components
+    if turn_mode:
+        delta = new_values * scale_factor
+    else:
+        delta = (new_values['dl'] - backups['dl'] + new_values['dr'] - backups['dr']) / 2
+        delta *= constants['transform_rate'] * scale_factor
+        # for bad moves!
+        delta *= constants['delta_correction']
+    log('DELTAAA = {0} cells'.format(delta))
+    lengths = list()
+    for i in range(len(components)):
+        s = 0
+        last = None
+        for point in components[i]:
+            if last is not None:
+                s += math.fabs(point[0] - last[0]) + math.fabs(point[1] - last[1])
+            last = point
+        lengths.append(s)
+
+    for i in range(len(particles)):
+        island = list()
+        for particle in particles[i]:
+            island.append(int((particle + np.random.normal(delta, constants['move_particle_sigma']))
+                              + 0.5) % lengths[i])
+        island.sort()
+        particles[i] = copy.deepcopy(island)
+    show_particles()
+
+
+def is_localized():
+    variance = 0
+    for i in range(len(particles)):
+        cur = np.var(particles[i])
+        variance += cur * (len(particles[i]) - 1)
+    variance /= constants['M']
+    log('variance is: {0}'.format(variance))
+    if variance < constants['variance_threshold']:
+        return True
+    return False
+
+
+def get_pos():
+    for i in range(len(particles)):
+        if len(particles[i]) > 0.9 * constants['M']:
+            mid = int((len(particles[i]) + 1) / 2)
+            return get_2d_particles()[mid]
+    return None
+
+
 # find the first corner that the robot detects
 def find_corner(robot):
     # TODO
@@ -521,15 +601,29 @@ def find_corner(robot):
     if state == RobotState.ONE_WALL:
         justify_robot(robot)
     while True:
+        backups = compute_odometry(robot)
+        stop_watch = StopWatch()
         init_state = state
         while init_state == state:
             centimeters = None
             state = get_robot_state(robot, centimeters=centimeters)
             obstacle_avoid_forward_move(robot, centimeters=centimeters)
+            if stop_watch.get_time_seconds() > 1:
+                new_values = compute_odometry(robot)
+                move_particles(new_values, backups)
+                backups = new_values
+                stop_watch.begin()
         log('state = {0}'.format(state))
         if state == RobotState.UP_RIGHT:
+            new_values = compute_odometry(robot)
+            move_particles(new_values, backups)
+
             update_particles()
             do_action(robot, Action.TURN_LEFT)
+
+            move_particles(constants['turn_left_delta_x'], turn_mode=True)
+            if is_localized():
+                Status(True, 'localized at position {0}'.format(get_pos())).show_verdict()
             return Status(True, 'Successfully found corner!')
         if state == RobotState.ONE_WALL:
             # we have right wall!
@@ -540,7 +634,14 @@ def find_corner(robot):
             continue
         # state == NO_WALL
         if init_state == RobotState.ONE_WALL:
+            new_values = compute_odometry(robot)
+            move_particles(new_values, backups)
+            backups = new_values
+
             edge_right(robot)
+
+            move_particles(constants['turn_right_delta_x'], turn_mode=True)
+            backups = compute_odometry(robot)
 
             # state = get_robot_state(robot)
             # stop_watch = StopWatch()
