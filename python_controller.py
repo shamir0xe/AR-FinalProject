@@ -25,6 +25,13 @@ class RobotState(Enum):
     THREE_WALLS = 3
 
 
+class WorkingMode(Enum):
+    SIMULATION = 0,
+    REAL_WORLD = 1
+
+
+working_mode = WorkingMode.REAL_WORLD
+
 constants = {
     'pi': math.acos(-1),
     'time_step': 8,
@@ -182,6 +189,60 @@ def error(text):
 
 
 def setup(robot):
+    global constants, min_dist, max_dist
+    if working_mode is WorkingMode.REAL_WORLD:
+        constants['normal_speed'] = 185
+        constants['epsilon_angle'] = 0.01
+        constants['wall_sensor_threshold'] = 100
+        constants['wall_centimeters_threshold'] = 4
+        constants['sensor_one_wall_min'] = 1.5
+        constants['sensor_one_wall_max'] = 3
+        constants['sensor_determination_count'] = 1
+        constants['justify_threshold'] = 1.5
+        constants['rotate_right'] = {
+            '0': 2,
+            '1': 2
+        }
+        constants['particle_update_threshold'] = 7
+        constants['turn_left_delta_x'] = 0
+        constants['turn_right_delta_x'] = 10
+        constants['move_particle_sigma'] = 2.2
+        constants['transform_rate'] = 15 / 0.1203
+        constants['delta_correction'] = 0.975
+        constants['variance_threshold'] = 333
+        min_dist = [[427.12857142857143, 486.4452380952381, 515.01253968253968, 550.8261904761905, 622.57174603174599,
+                     822.68015873015872, 1724.5287301587302],
+                    [172.05714285714285, 201.45857142857142, 224.95412698412699, 266.78730158730161, 353.19619047619045,
+                     608.84571428571428, 2021.8746031746032],
+                    [210.3857142857143, 248.68269841269841, 270.20809523809527, 306.57476190476189, 395.76857142857142,
+                     653.33111111111111, 1921.1315873015874],
+                    [220.12857142857143, 255.45619047619047, 281.10095238095238, 321.0963492063492, 409.23269841269837,
+                     661.77507936507936, 1915.2774603174605],
+                    [29.259144915254232, 489.90597218321227, 736.21571428571428, 782.19841269841265, 870.40444444444438,
+                     1096.0180952380952, 2017.1522222222222],
+                    [315.97142857142859, 360.12968253968251, 380.92253968253971, 419.96904761904761, 496.76111111111112,
+                     717.69444444444446, 1805.5907936507938],
+                    [175.3857142857143, 206.44380952380953, 230.25412698412697, 273.88698412698415, 365.0669841269841,
+                     614.87079365079364, 1865.6471428571426],
+                    [353.75714285714287, 814.39777777777772, 1043.2649206349206, 1092.0741269841269, 1184.3068253968254,
+                     1418.7219047619046, 2490.9225396825395]]
+        max_dist = [[480.42777777777775, 503.47952380952381, 538.33253968253962, 592.31714285714293, 736.03412698412706,
+                     1309.550634920635, 2340.0317460317465],
+                    [196.23984126984126, 215.60142857142856, 250.16507936507938, 317.53396825396828, 496.67809523809524,
+                     1360.0619047619048, 2930.6444444444446],
+                    [241.11095238095237, 263.01412698412696, 291.66333333333336, 357.85047619047617, 541.30380952380949,
+                     1332.9477777777779, 2741.2174603174608],
+                    [249.94063492063492, 270.80380952380949, 305.87190476190472, 372.00539682539682, 551.95507936507931,
+                     1333.2622222222221, 2728.1920634920639],
+                    [257.79466502421303, 725.54619047619042, 764.11904761904759, 834.54793650793647, 999.188253968254,
+                     1597.4033333333334, 2667.0111111111114],
+                    [355.53698412698412, 372.63301587301584, 404.2373015873016, 465.54047619047617, 620.95634920634916,
+                     1301.1711111111113, 2524.6920634920639],
+                    [200.57206349206348, 221.06333333333333, 256.27174603174603, 327.47269841269843, 506.62126984126985,
+                     1284.2417460317461, 2672.9476190476189],
+                    [600.58634920634927, 1032.4334920634922, 1072.6401587301589, 1147.0741269841269, 1318.103492063492,
+                     1996.3790476190475, 3268.0126984126982]]
+
     global sensors
     robot.enableEncoders(constants['time_step'])
     distance_sensor = [None for i in range(8)]
@@ -202,6 +263,7 @@ def get_centimeters(robot, debug=False, repeat=constants['sensor_determination_c
     ret = [dict() for i in range(8)]
     for iteration in range(repeat):
         values = [sensors['distance_sensor'][i].getValue() for i in range(8)]
+        # log('sensor #2 value: {0}'.format(values[2]))
         centimeters = [10 for i in range(8)]
         nn = len(min_dist[0])
         for i in range(8):
@@ -222,7 +284,10 @@ def get_centimeters(robot, debug=False, repeat=constants['sensor_determination_c
                 ret[i][centimeters[i]] = 1
             else:
                 ret[i][centimeters[i]] += 1
-        do_action(robot, Action.STOP)
+        if working_mode is WorkingMode.SIMULATION:
+            do_action(robot, Action.STOP)
+            # if working_mode is WorkingMode.REAL_WORLD and gholaam_last_action == Action.MOVE_FORWARD:
+            #     do_action(robot, Action.MOVE_FORWARD, desired_speed=50)
     majority = [0 for i in range(8)]
     for i in range(8):
         maxi = -1
@@ -235,6 +300,7 @@ def get_centimeters(robot, debug=False, repeat=constants['sensor_determination_c
     if debug:
         for i in range(8):
             log('mean sensor #{0}: {1} centimeters'.format(i, majority[i]))
+    # log('sensor #1: {0} cm'.format(majority[1]))
     return majority
 
 
@@ -285,6 +351,8 @@ class StopWatch:
 
     def get_time_seconds(self):
         # log('timer: {0}s'.format(time.clock() - self.timer))
+        if working_mode is WorkingMode.REAL_WORLD:
+            return (time.clock() - self.timer) * 100 / 4
         return time.clock() - self.timer
 
     def begin(self):
@@ -320,9 +388,14 @@ def robot_step(robot, speed):
     robot.step(int(constants['time_step']))
 
 
+gholaam_last_action = None
+
+
 # doing the desired action, with specific speed and specific angle
 # the null action is included as STOP
 def do_action(robot, action, desired_speed=None, angle=constants['pi'] / 2):
+    global gholaam_last_action
+    gholaam_last_action = action
     # log('do "{0}"'.format(action))
     wheel_speed = constants['normal_speed']
     if desired_speed is not None:
@@ -442,8 +515,10 @@ def justify_robot(robot, initial_direction=Action.TURN_LEFT):
         if max_value < cur_value:
             max_value = cur_value
             centimeter_min_value = centimeters[2]
+            # log('centimeter_min_value = {0}'.format(centimeter_min_value))
+            # log('wall_cent_threshold = {0}'.format(constants['wall_centimeters_threshold']))
             angle = compute_odometry(robot)['da']
-        if max_value - cur_value > max_value * 0.95 \
+        if max_value - cur_value > max_value * 0.6 \
                 and cmp(centimeter_min_value, constants['wall_centimeters_threshold']) <= 0:
             direction = opposite_direction(direction)
             break
@@ -553,6 +628,8 @@ def move_particles(new_values, backups=None, turn_mode=False):
         delta *= constants['transform_rate'] * scale_factor
         # for bad moves!
         delta *= constants['delta_correction']
+    log('turn mode = {0}'.format(turn_mode))
+    log('backup = {0}'.format(backups))
     log('DELTAAA = {0} cells'.format(delta))
     lengths = list()
     for i in range(len(components)):
@@ -590,16 +667,15 @@ def get_pos():
     for i in range(len(particles)):
         if len(particles[i]) > 0.9 * constants['M']:
             mid = int((len(particles[i]) + 1) / 2)
-            return get_2d_particles()[mid]
+            return get_2d_particles()[i][mid]
     return None
 
 
 # find the first corner that the robot detects
 def find_corner(robot):
     # TODO
+    first = True
     state = get_robot_state(robot)
-    if state == RobotState.ONE_WALL:
-        justify_robot(robot)
     while True:
         backups = compute_odometry(robot)
         stop_watch = StopWatch()
@@ -626,11 +702,15 @@ def find_corner(robot):
                 Status(True, 'localized at position {0}'.format(get_pos())).show_verdict()
             return Status(True, 'Successfully found corner!')
         if state == RobotState.ONE_WALL:
+            first = False
             # we have right wall!
             centimeters = get_centimeters(robot)
             mini = min(centimeters)
-            if mini < constants['justify_threshold']:
+            if cmp(mini, constants['justify_threshold']) < 0:
                 justify_robot(robot)
+            continue
+        if first:
+            first = False
             continue
         # state == NO_WALL
         if init_state == RobotState.ONE_WALL:
@@ -642,34 +722,6 @@ def find_corner(robot):
 
             move_particles(constants['turn_right_delta_x'], turn_mode=True)
             backups = compute_odometry(robot)
-
-            # state = get_robot_state(robot)
-            # stop_watch = StopWatch()
-            # while True:
-            #     if corner_found(state):
-            #         return Status(True, 'Corner Found!')
-            #     init_state = state
-            #     while init_state == state:
-            #         obstacle_avoid_forward_move(robot, properties)
-            #         state = get_robot_state(robot)
-            #         # if stop_watch.get_time_seconds() > constants['find_corner_timeout']:
-            #         #     return Status(False, 'Timeout Reached!')
-            #     Status(True, 'state changed: {0}'.format(state)).show_verdict()
-            #     for i in range(100):
-            #         obstacle_avoid_forward_move(robot, properties)
-            #     log('state = {0}'.format(state))
-            #     if state == RobotState.NO_WALL:
-            #         continue
-            #         # p = random()
-            #         # if p < constants['chance_to_turn_right']:
-            #         #     do_action(robot, Action.TURN_RIGHT)
-            #         #     # we have no wall around here yet
-            #         #     continue
-            #     # state != NO_WALL
-            #     # face the right side of the robot to the walls
-            #     justify_robot(robot)
-            #     state = get_robot_state(robot, debug=False)
-            #     log('state after justify = {0}'.format(state))
 
 
 # testing moving and rotating
@@ -711,6 +763,12 @@ def test_robot_state(robot):
         do_action(robot, Action.STOP)
 
 
+def test_centimeters(robot):
+    while True:
+        get_centimeters(robot, debug=True)
+        do_action(robot, Action.STOP)
+
+
 def get_delta(comp, idx):
     return math.fabs(comp[idx + 1][0] - comp[idx][0]) + math.fabs(comp[idx + 1][1] - comp[idx][1])
 
@@ -731,6 +789,17 @@ def show_particles():
 
 
 def main(robot):
+    # setup(robot)
+
+    # status = find_corner(robot)
+    # status.show_verdict()
+    # test_centimeters(robot)
+    # return
+    # test_free_rotation(robot)
+    # test(robot)
+    # test_robot_state(robot)
+    # test_justify(robot)
+
     global particles
     setup(robot)
     lengths = list()
@@ -757,7 +826,6 @@ def main(robot):
         cur_particles.sort()
         particles.append(cur_particles)
 
-    # print lengths
     show_particles()
     while True:
         status = find_corner(robot)
