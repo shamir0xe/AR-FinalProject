@@ -34,6 +34,8 @@ class WorkingMode(Enum):
 
 working_mode = WorkingMode.REAL_WORLD
 best_variance = None
+best_ratio = None
+LEDs = None
 
 constants = {
     'total_turn': 1e10,
@@ -57,7 +59,8 @@ constants = {
     'justify_threshold': 1,
     'rotate_right': {
         '0': 1,
-        '1': 1
+        '1': 1,
+        '7': 1
     },
     'M': 1000,
     'epsilon_of_EG': 0.03,
@@ -69,7 +72,12 @@ constants = {
     'delta_correction': 0.85,
     'variance_threshold': 4444,
     'sensor_one_delta': 1,
-    'variance_multiplier': 4
+    'variance_multiplier': 4,
+    'radius_threshold': 5,
+    'kidnap_threshold': {
+        'max': 0.5,
+        'min': 0.3
+    }
 }
 
 sensors = {}
@@ -195,8 +203,57 @@ def error(text):
     print(''.join((red, '[Error] ', off, str(text))))
 
 
+def calibrate_sensors(robot):
+    if working_mode is WorkingMode.SIMULATION:
+        return
+    global min_dist, max_dist
+    log('calibrating sensors...\nSTAY AWAY!')
+    backup = compute_odometry(robot)
+    min_values = [1e10 for i in range(8)]
+    max_values = [0 for i in range(8)]
+    cnt = 0
+    while True:
+        cnt += 1
+        sensor_values = [sensors['distance_sensor'][i].getValue() for i in range(8)]
+        min_values = [min(min_values[i], sensor_values[i]) for i in range(8)]
+        max_values = [max(max_values[i], sensor_values[i]) for i in range(8)]
+
+        do_action(robot, Action.EPSILON_TURN_LEFT)
+        cur_value = compute_odometry(robot)
+        angle = fabs(cur_value['da'] - backup['da'])
+        if cmp(angle, 2 * constants['pi']) >= 0:
+            log('end of calibrating step, the main function will be called in 10seconds')
+            break
+    k_min = [min_values[i] / min_dist[i][0] for i in range(8)]
+    k_max = [max_values[i] / max_dist[i][len(max_dist[i]) - 1] for i in range(8)]
+    print k_min
+    print k_max
+    for i in range(8):
+        for j in range(len(min_dist[i])):
+            min_dist[i][j] *= k_max[i]
+            max_dist[i][j] *= k_max[i]
+
+    log('10 seconds waiting to adjust position')
+    ringing_led(robot, seconds=10)
+
+
+def ringing_led(robot, seconds=10):
+    stop_watch = StopWatch()
+    while stop_watch.get_alternative_seconds() < seconds:
+        for i in range(8):
+            LEDs[i].set(1)
+            do_action(robot, Action.STOP)
+            time.sleep(0.1)
+        for i in range(8):
+            LEDs[i].set(0)
+            time.sleep(0.1)
+            do_action(robot, Action.STOP)
+        log('time: {0}'.format(stop_watch.get_alternative_seconds()))
+    log('Gholaam, GO!')
+
+
 def setup(robot):
-    global constants, min_dist, max_dist
+    global constants, min_dist, max_dist, LEDs
     if working_mode is WorkingMode.REAL_WORLD:
         constants['total_turn'] = 3
         constants['wall_centimeters_threshold7'] = 2
@@ -212,7 +269,8 @@ def setup(robot):
         constants['justify_threshold'] = 1.5
         constants['rotate_right'] = {
             '0': 1,
-            '1': 1
+            '1': 1,
+            '7': 1
         }
         constants['particle_update_threshold'] = 10
         constants['turn_left_delta_x'] = 0
@@ -268,6 +326,9 @@ def setup(robot):
         for i in range(8):
             log('sensor #{0}: {1:.0f}'.format(i, values[i]))
         do_action(robot, Action.STOP)
+    LEDs = [robot.getLED('led{0}'.format(i)) for i in range(8)]
+    # ringing_led(robot)
+    calibrate_sensors(robot)
 
 
 def get_centimeters(robot, debug=False, repeat=constants['sensor_determination_count']):
@@ -361,6 +422,7 @@ def get_robot_state(robot, debug=False, centimeters=None):
 class StopWatch:
     def __init__(self):
         self.timer = time.clock()
+        self.t_time = time.time()
 
     def get_time_seconds(self):
         # log('timer: {0}s'.format(time.clock() - self.timer))
@@ -368,8 +430,12 @@ class StopWatch:
             return (time.clock() - self.timer) * 100 / 4
         return time.clock() - self.timer
 
+    def get_alternative_seconds(self):
+        return time.time() - self.t_time
+
     def begin(self):
         self.timer = time.clock()
+        self.t_time = time.time()
 
 
 # all types of action that robot can do
@@ -539,7 +605,7 @@ def justify_robot(robot, initial_direction=Action.TURN_LEFT):
             # log('centimeter_min_value = {0}'.format(centimeter_min_value))
             # log('wall_cent_threshold = {0}'.format(constants['wall_centimeters_threshold']))
             angle = compute_odometry(robot)['da']
-        if max_value - cur_value > max_value * 0.6 \
+        if max_value - cur_value > max_value * 0.4 \
                 and cmp(centimeter_min_value, constants['wall_centimeters_threshold']) <= 0:
             direction = opposite_direction(direction)
             break
@@ -631,7 +697,8 @@ def update_particles(edge_detected=False):
         cur_picked = list()
         while idx < len(random_set) and 0 <= random_set[idx] - bef_sum < len(upgrades):
             cur_picked.append(
-                int(upgrades[random_set[idx] - bef_sum] + np.random.normal(0, constants['move_particle_sigma']) + 0.5) %
+                int(upgrades[random_set[idx] - bef_sum] + np.random.normal(0, constants[
+                    'move_particle_sigma'] / 3) + 0.5) %
                 lengths[i][len(lengths[i]) - 1])
             idx += 1
         bef_sum += len(upgrades)
@@ -673,10 +740,16 @@ def edge_right(robot):
         do_action(robot, Action.ROTATE_RIGHT)
         centimeters = get_centimeters(robot)
         if cmp(centimeters[0], constants['rotate_right']['0']) < 0 \
-                or cmp(centimeters[1], constants['rotate_right']['1']) < 0:
+                or cmp(centimeters[1], constants['rotate_right']['1']) < 0 \
+                or cmp(centimeters[7], constants['rotate_right']['7']) < 0:
             Status(True, 'wall found!').show_verdict()
             justify_robot(robot)
             break
+        cur_observation = compute_odometry(robot)
+        if fabs(cur_observation['da'] - backup['da']) > 5 * constants['pi'] / 2:
+            do_action(robot, Action.MOVE_FORWARD)
+            # possibly kidnapped
+            return
     new_observation = compute_odometry(robot)
     angle = fabs(new_observation['da'] - backup['da'])
     log('angle = {0}'.format(angle))
@@ -684,6 +757,8 @@ def edge_right(robot):
         Status(True, 'edge detected').show_verdict()
         update_particles(edge_detected=True)
         move_particles(constants['turn_right_delta_x'], turn_mode=True)
+    else:
+        move_particles(new_observation, backup)
 
 
 def move_particles(new_values, backups=None, turn_mode=False):
@@ -691,7 +766,7 @@ def move_particles(new_values, backups=None, turn_mode=False):
     if turn_mode:
         delta = new_values * scale_factor
     else:
-        delta = (new_values['dl'] - backups['dl'] + new_values['dr'] - backups['dr']) / 2
+        delta = fabs(new_values['dl'] - backups['dl'] + new_values['dr'] - backups['dr']) / 2
         delta *= constants['transform_rate'] * scale_factor
         # for bad moves!
         delta *= constants['delta_correction']
@@ -718,47 +793,83 @@ def move_particles(new_values, backups=None, turn_mode=False):
     show_particles()
 
 
-def is_kidnapped(variance=None):
-    global best_variance
-    if variance is None:
-        variance = 0
-        for i in range(len(particles)):
-            if len(particles[i]) == 0:
-                continue
-            cur = np.var(particles[i])
-            variance += cur * (len(particles[i]) - 1)
-        variance /= constants['M']
-    if best_variance is None:
-        best_variance = variance
-        return False
-    if best_variance < constants['variance_multiplier'] * variance:
+def is_kidnapped(ratio):
+    global best_ratio
+    if best_ratio is not None and best_ratio > constants['kidnap_threshold']['max'] and ratio < \
+            constants['kidnap_threshold']['min']:
+        best_ratio = None
         return True
-    if best_variance > variance:
-        best_variance = variance
     return False
+    # global best_variance
+    # if variance is None:
+    #     variance = 0
+    #     for i in range(len(particles)):
+    #         if len(particles[i]) == 0:
+    #             continue
+    #         cur = np.var(particles[i])
+    #         variance += cur * (len(particles[i]) - 1)
+    #     variance /= constants['M']
+    # if best_variance is None:
+    #     best_variance = variance
+    #     return False
+    # if best_variance < constants['variance_multiplier'] * variance:
+    #     return True
+    # if best_variance > variance:
+    #     best_variance = variance
+    # return False
 
 
-def is_localized():
-    variance = 0
+def is_localized(robot):
+    global best_ratio
+    best_island = None
     for i in range(len(particles)):
-        if len(particles[i]) == 0:
-            continue
-        cur = np.var(particles[i])
-        variance += cur * (len(particles[i]) - 1)
-    variance /= constants['M']
-    log('variance is: {0}'.format(variance))
-    if is_kidnapped(variance=variance):
-        log('========= kidnapped =========')
-    if variance < constants['variance_threshold']:
+        if best_island is None or len(particles[i]) > len(particles[best_island]):
+            best_island = i
+
+    mid = int((len(particles[best_island]) + 1) / 2)
+    counter = 0
+    for k in range(len(particles)):
+        for j in range(len(particles[k])):
+            if fabs(particles[k][j] - particles[best_island][mid]) < constants['radius_threshold'] * scale_factor:
+                counter += 1
+    pot = 1. * counter / constants['M']
+    if best_ratio > constants['kidnap_threshold']['max']:
+        LED_mask(robot, '1010101', 0.1)
+    if best_ratio is None or best_ratio < pot:
+        best_ratio = pot
+    if is_kidnapped(ratio=pot):
+        log('============ kidnapped ============')
+        for j in range(2):
+            LED_mask(robot, '11111111', 1)
+            LED_mask(robot, '00000000', 0.1)
+        ringing_led(robot, 10)
+        for j in range(2):
+            LED_mask(robot, '11111111', 1)
+            LED_mask(robot, '00000000', 0.1)
+    log('------------------ best = {0:.3f} vs cur ratio = {1:.3f} -----------------'.format(best_ratio, pot))
+    if counter >= 0.8 * constants['M']:
         return True
     return False
+    # variance = 0
+    # for i in range(len(particles)):
+    #     if len(particles[i]) == 0:
+    #         continue
+    #     cur = np.var(particles[i])
+    #     variance += cur * (len(particles[i]) - 1)
+    # variance /= constants['M']
+    # log('variance is: {0}'.format(variance))
+    # if is_kidnapped(variance=variance):
+    #     log('========= kidnapped =========')
+    # if variance < constants['variance_threshold']:
+    #     return True
+    # return False
 
 
 def get_pos():
     for i in range(len(particles)):
         if len(particles[i]) > 0.9 * constants['M']:
             mid = int((len(particles[i]) + 1) / 2)
-            return get_2d_particles()[i][mid]
+            return get_2d_particles()[i][mid][0] / scale_factor, get_2d_particles()[i][mid][1] / scale_factor
     return None
 
 
@@ -767,7 +878,7 @@ def find_corner(robot):
     # TODO
     # first = True
     state = get_robot_state(robot)
-    if state == RobotState.ONE_WALL and cmp(min(get_centimeters(robot)), constants['wall_sensor_threshold']) < 0:
+    if state == RobotState.ONE_WALL and cmp(min(get_centimeters(robot)), constants['wall_centimeters_threshold']) < 0:
         test_justify(robot)
         state = get_robot_state(robot)
     properties = {
@@ -798,7 +909,7 @@ def find_corner(robot):
             do_action(robot, Action.TURN_LEFT)
 
             move_particles(constants['turn_left_delta_x'], turn_mode=True)
-            if is_localized():
+            if is_localized(robot):
                 return Status(False, 'localized at position {0}'.format(get_pos()))
             return Status(True, 'Successfully found corner!')
         if state == RobotState.ONE_WALL:
@@ -883,6 +994,17 @@ def show_particles():
     graphics.pygame.display.update()
 
 
+def LED_mask(robot, mask, seconds):
+    stop_watch = StopWatch()
+    while stop_watch.get_alternative_seconds() < seconds:
+        for i in range(8):
+            value = 0
+            if mask[i] == '1':
+                value = 1
+            LEDs[i].set(value)
+        do_action(robot, Action.STOP)
+
+
 def main(robot):
     # setup(robot)
 
@@ -926,7 +1048,11 @@ def main(robot):
         status = find_corner(robot)
         status.show_verdict()
         if not status.verdict:
+            # found the correct point
             do_action(robot, Action.STOP)
+            for i in range(5):
+                LED_mask(robot, '01010101', 1)
+                LED_mask(robot, '10101010', 1)
             break
 
 

@@ -104,7 +104,7 @@ def draw_map(map_len, obstacles_pos, points_pos=None, lines=None, path=None, cir
         draw_circles(map_len, circles, map_length)
     # draw_points(map_len, screen, goal_pos, map_length, (166, 226, 46))
     # draw_points(map_len, screen, start_pos, map_length, (92, 212, 239))
-    update_display_forever()
+    # update_display_forever()
 
 
 def update_display_forever():
