@@ -12,8 +12,12 @@ import numpy as np
 
 import graphics
 
+import sys
+
 from math import fabs
 from controller import *
+
+sys.setrecursionlimit(5555555)
 
 
 class RobotState(Enum):
@@ -36,6 +40,7 @@ working_mode = WorkingMode.REAL_WORLD
 best_variance = None
 best_ratio = None
 LEDs = None
+escape = False
 
 constants = {
     'total_turn': 1e10,
@@ -68,7 +73,7 @@ constants = {
     'turn_left_delta_x': 0,
     'turn_right_delta_x': 12,
     'move_particle_sigma': 4,
-    'transform_rate': 15 / 0.1203,
+    'transform_rate': 113.733471342,
     'delta_correction': 0.85,
     'variance_threshold': 4444,
     'sensor_one_delta': 1,
@@ -77,7 +82,8 @@ constants = {
     'kidnap_threshold': {
         'max': 0.5,
         'min': 0.3
-    }
+    },
+    'ratio_edge_right': 0.4
 }
 
 sensors = {}
@@ -204,6 +210,7 @@ def error(text):
 
 
 def calibrate_sensors(robot):
+    return
     if working_mode is WorkingMode.SIMULATION:
         return
     global min_dist, max_dist
@@ -234,7 +241,7 @@ def calibrate_sensors(robot):
             max_dist[i][j] *= k_max[i]
 
     log('10 seconds waiting to adjust position')
-    ringing_led(robot, seconds=10)
+    ringing_led(robot, seconds=5)
 
 
 def ringing_led(robot, seconds=10):
@@ -255,6 +262,7 @@ def ringing_led(robot, seconds=10):
 def setup(robot):
     global constants, min_dist, max_dist, LEDs
     if working_mode is WorkingMode.REAL_WORLD:
+        constants['ratio_edge_right'] = 0.4
         constants['total_turn'] = 3
         constants['wall_centimeters_threshold7'] = 2
         constants['wall_centimeters_threshold1'] = 1.5
@@ -276,13 +284,13 @@ def setup(robot):
         constants['turn_left_delta_x'] = 0
         constants['turn_right_delta_x'] = 12
         constants['move_particle_sigma'] = 2.2
-        constants['transform_rate'] = 15 / 0.1203
+        constants['transform_rate'] = 113.733471342
         constants['delta_correction'] = 0.98
         constants['variance_threshold'] = 4444
-        min_dist = [[42.831818181818186, 49.376063829787235, 67.820051497492884, 88.803260699519498, 130.13962753036438,
-                     310.38359906759911, 961.72887323943667],
-                    [90.180000000000007, 105.56425396825396, 118.9613711001642, 149.79885834109973, 223.10368065433855,
-                     478.58031432748538, 1745.3248106060607],
+        min_dist = [[194.11875000000001, 221.08937499999999, 236.64750000000001, 263.20468749999998, 308.34479779411765,
+                     444.17216386554622, 996.9985857142857],
+                    [144.63529411764708, 172.50138562091502, 195.72569696969697, 226.03820512820513, 317.47879924953094,
+                     517.75081038552321, 1369.6175243810953],
                     [122.38392857142858, 146.10322478991597, 166.86430995475112, 210.32851398601397, 309.88419999999996,
                      655.42307272727271, 2343.7649411764705],
                     [220.12857142857143, 255.45619047619047, 281.10095238095238, 321.0963492063492, 409.23269841269837,
@@ -293,12 +301,12 @@ def setup(robot):
                      717.69444444444446, 1805.5907936507938],
                     [175.3857142857143, 206.44380952380953, 230.25412698412697, 273.88698412698415, 365.0669841269841,
                      614.87079365079364, 1865.6471428571426],
-                    [353.75714285714287, 814.39777777777772, 1043.2649206349206, 1092.0741269841269, 1184.3068253968254,
-                     1418.7219047619046, 2490.9225396825395]]
-        max_dist = [[48.470164410058032, 58.906605231061121, 82.545269862554477, 112.24525775978407, 227.73015384615385,
-                     671.90535638070855, 1367.3309859154931],
-                    [102.84209523809524, 113.50359879584018, 136.83814072693383, 192.28785561877669, 364.11339912280698,
-                     1158.8784722222222, 2545.9750000000004],
+                    [282.18600000000004, 326.32695000000001, 352.52958333333333, 394.62361111111107, 478.94222222222226,
+                     698.74184456928833, 1334.5656782680185]]
+        max_dist = [[218.34812500000001, 230.10249999999999, 252.95156249999999, 290.48792279411765, 384.04002100840336,
+                     746.0771285714286, 1364.5940000000001],
+                    [166.51560784313727, 186.88844444444445, 215.00841491841493, 276.50869293308318, 436.29954366640442,
+                     977.44474118529627, 1925.2813953488373],
                     [140.96715336134454, 158.85854072398192, 192.21519230769232, 268.2848909090909, 500.56420000000003,
                      1563.2682139037433, 3411.4364705882358],
                     [249.94063492063492, 270.80380952380949, 305.87190476190472, 372.00539682539682, 551.95507936507931,
@@ -309,8 +317,8 @@ def setup(robot):
                      1301.1711111111113, 2524.6920634920639],
                     [200.57206349206348, 221.06333333333333, 256.27174603174603, 327.47269841269843, 506.62126984126985,
                      1284.2417460317461, 2672.9476190476189],
-                    [600.58634920634927, 1032.4334920634922, 1072.6401587301589, 1147.0741269841269, 1318.103492063492,
-                     1996.3790476190475, 3268.0126984126982]]
+                    [319.83805000000001, 342.42874999999998, 378.23750000000001, 444.22444444444443, 604.30153870162303,
+                     1058.4241819676622, 1762.8439024390245]]
 
     global sensors
     robot.enableEncoders(constants['time_step'])
@@ -337,7 +345,7 @@ def get_centimeters(robot, debug=False, repeat=constants['sensor_determination_c
         values = [sensors['distance_sensor'][i].getValue() for i in range(8)]
         # for i in range(8):
         #     log('sensor #{0} value: {1}'.format(i, values[i]))
-        # log('sensor #{0} value: {1}'.format(2, values[2]))
+        # log('sensor #{0} value: {1}'.format(7, values[7]))
 
         centimeters = [10 for i in range(8)]
         nn = len(min_dist[0])
@@ -400,10 +408,10 @@ def get_robot_state(robot, debug=False, centimeters=None):
         return RobotState.ONE_WALL  # kesaafat kaari
     if cmp(centimeters[4], constants['wall_centimeters_threshold']) < 0 \
             and cmp(centimeters[5], constants['wall_centimeters_threshold']) < 0:
-        return RobotState.DOWN_LEFT
+        return RobotState.ONE_WALL
     if cmp(centimeters[5], constants['wall_centimeters_threshold']) < 0 \
             and cmp(centimeters[7], constants['wall_centimeters_threshold']) < 0:
-        return RobotState.LEFT_UP
+        return RobotState.ONE_WALL
     if cmp(centimeters[2], constants['wall_centimeters_threshold']) < 0 \
             and cmp(centimeters[5], constants['wall_centimeters_threshold']) < 0:
         return RobotState.RIGHT_LEFT
@@ -557,25 +565,35 @@ def opposite_direction(direction):
 
 
 def obstacle_avoid_forward_move(robot, properties, centimeters=None):
+    global escape, best_ratio
     if centimeters is None:
         centimeters = get_centimeters(robot, debug=False)
     if properties['turn_right_count'] >= constants['total_turn']:
         do_action(robot, Action.TURN_LEFT, angle=constants['pi'] / 4)
         properties['turn_right_count'] = 0
-        edge_right(robot)
-        return Status(True, 'edge right called')
+        if escape:
+            do_action(robot, Action.TURN_LEFT, angle=constants['pi'] / 6)
+            best_ratio = None
+            centimeters = get_centimeters(robot)
+            escape = False
+            while cmp(centimeters[7], constants['wall_centimeters_threshold7']) > 0 or cmp(centimeters[0], constants[
+                'wall_centimeters_threshold']) > 0 or cmp(centimeters[1], constants['wall_centimeters_threshold1']) > 0:
+                do_action(robot, Action.MOVE_FORWARD)
+                centimeters = get_centimeters(robot)
+            return
+        return edge_right(robot)
     if cmp(centimeters[1], constants['sensor_one_wall_min']) <= 0:
         do_action(robot, Action.EPSILON_TURN_LEFT)
         properties['turn_right_count'] = 0
-        return Status(True, 'ep turn left')
+        return Status(True, 'simple moves')
     if cmp(centimeters[1], constants['sensor_one_wall_max']) > 0 \
             and cmp(centimeters[1], constants['sensor_one_wall_max'] + constants['sensor_one_delta']) <= 0 \
             and cmp(centimeters[2], constants['wall_centimeters_threshold']) <= 0:
         do_action(robot, Action.EPSILON_TURN_RIGHT)
         properties['turn_right_count'] += 1
-        return Status(True, 'ep turn right')
+        return Status(True, 'simple moves')
     do_action(robot, Action.MOVE_FORWARD)
-    return Status(True, 'move forward')
+    return Status(True, 'simple moves')
 
 
 def right_is_the_best(robot):
@@ -605,7 +623,7 @@ def justify_robot(robot, initial_direction=Action.TURN_LEFT):
             # log('centimeter_min_value = {0}'.format(centimeter_min_value))
             # log('wall_cent_threshold = {0}'.format(constants['wall_centimeters_threshold']))
             angle = compute_odometry(robot)['da']
-        if max_value - cur_value > max_value * 0.4 \
+        if max_value - cur_value > max_value * 0.3 \
                 and cmp(centimeter_min_value, constants['wall_centimeters_threshold']) <= 0:
             direction = opposite_direction(direction)
             break
@@ -743,28 +761,37 @@ def edge_right(robot):
                 or cmp(centimeters[1], constants['rotate_right']['1']) < 0 \
                 or cmp(centimeters[7], constants['rotate_right']['7']) < 0:
             Status(True, 'wall found!').show_verdict()
+            new_observation = compute_odometry(robot)
             justify_robot(robot)
             break
         cur_observation = compute_odometry(robot)
-        if fabs(cur_observation['da'] - backup['da']) > 5 * constants['pi'] / 2:
-            do_action(robot, Action.MOVE_FORWARD)
-            # possibly kidnapped
-            return
-    new_observation = compute_odometry(robot)
+        # if fabs(cur_observation['da'] - backup['da']) > 5 * constants['pi'] / 2:
+        #     do_action(robot, Action.MOVE_FORWARD)
+        #     # possibly kidnapped
+        #     return Status(True, 'kidnapped')
     angle = fabs(new_observation['da'] - backup['da'])
     log('angle = {0}'.format(angle))
     if cmp(angle, constants['pi'] / 3) > 0:
         Status(True, 'edge detected').show_verdict()
         update_particles(edge_detected=True)
-        move_particles(constants['turn_right_delta_x'], turn_mode=True)
+        # move_particles(constants['turn_right_delta_x'], turn_mode=True)
+        move_particles(new_observation, backup, turn_mode=True)  # ridam toosh
+        return is_localized(robot)
     else:
         move_particles(new_observation, backup)
+        return Status(True, 'correction part')
 
 
 def move_particles(new_values, backups=None, turn_mode=False):
     global particles, components
     if turn_mode:
-        delta = new_values * scale_factor
+        if backups is None:
+            delta = new_values * scale_factor
+        else:
+            delta = fabs(new_values['dl'] - backups['dl'] + new_values['dr'] - backups['dr']) / 2
+            delta *= constants['transform_rate'] * scale_factor
+            # for bad moves!
+            delta *= constants['delta_correction'] * constants['ratio_edge_right']
     else:
         delta = fabs(new_values['dl'] - backups['dl'] + new_values['dr'] - backups['dr']) / 2
         delta *= constants['transform_rate'] * scale_factor
@@ -833,10 +860,12 @@ def is_localized(robot):
             if fabs(particles[k][j] - particles[best_island][mid]) < constants['radius_threshold'] * scale_factor:
                 counter += 1
     pot = 1. * counter / constants['M']
-    if best_ratio > constants['kidnap_threshold']['max']:
-        LED_mask(robot, '1010101', 0.1)
     if best_ratio is None or best_ratio < pot:
         best_ratio = pot
+
+    if best_ratio > constants['kidnap_threshold']['max']:
+        LED_mask(robot, '10101010', 0.1)
+
     if is_kidnapped(ratio=pot):
         log('============ kidnapped ============')
         for j in range(2):
@@ -846,10 +875,11 @@ def is_localized(robot):
         for j in range(2):
             LED_mask(robot, '11111111', 1)
             LED_mask(robot, '00000000', 0.1)
+        return Status(False, 'kidnapped')
     log('------------------ best = {0:.3f} vs cur ratio = {1:.3f} -----------------'.format(best_ratio, pot))
     if counter >= 0.8 * constants['M']:
-        return True
-    return False
+        return Status(True, 'localized')
+    return Status(False, '')
     # variance = 0
     # for i in range(len(particles)):
     #     if len(particles[i]) == 0:
@@ -878,6 +908,7 @@ def find_corner(robot):
     # TODO
     # first = True
     state = get_robot_state(robot)
+    log('first state = {0}'.format(state))
     if state == RobotState.ONE_WALL and cmp(min(get_centimeters(robot)), constants['wall_centimeters_threshold']) < 0:
         test_justify(robot)
         state = get_robot_state(robot)
@@ -892,8 +923,11 @@ def find_corner(robot):
             centimeters = None
             state = get_robot_state(robot, centimeters=centimeters)
             status = obstacle_avoid_forward_move(robot, properties, centimeters=centimeters)
-            if status.message == 'edge right called':
+            if status.message != 'simple moves':
+                status.show_verdict()
                 backups = compute_odometry(robot)
+                if status.message == 'localized':
+                    return Status(False, 'localized at position {0}'.format(get_pos()))
                 continue
             if stop_watch.get_time_seconds() > 1:
                 new_values = compute_odometry(robot)
@@ -909,7 +943,7 @@ def find_corner(robot):
             do_action(robot, Action.TURN_LEFT)
 
             move_particles(constants['turn_left_delta_x'], turn_mode=True)
-            if is_localized(robot):
+            if is_localized(robot).verdict:
                 return Status(False, 'localized at position {0}'.format(get_pos()))
             return Status(True, 'Successfully found corner!')
         if state == RobotState.ONE_WALL:
@@ -917,7 +951,8 @@ def find_corner(robot):
             # we have right wall!
             centimeters = get_centimeters(robot)
             mini = min(centimeters)
-            if cmp(mini, constants['justify_threshold']) < 0:
+            if cmp(mini, constants['justify_threshold']) < 0 or cmp(centimeters[7], constants[
+                'wall_centimeters_threshold']) < 0 and cmp(centimeters[0], constants['wall_centimeters_threshold']) < 0:
                 justify_robot(robot)
             continue
         # if first:
@@ -927,7 +962,9 @@ def find_corner(robot):
         if init_state == RobotState.ONE_WALL:
             new_values = compute_odometry(robot)
             move_particles(new_values, backups)
-            edge_right(robot)
+            status = edge_right(robot)
+            if status.message == 'localized':
+                return Status(False, 'localized at position {0}'.format(get_pos()))
 
 
 # testing moving and rotating
@@ -1005,6 +1042,29 @@ def LED_mask(robot, mask, seconds):
         do_action(robot, Action.STOP)
 
 
+# def SLAM(robot):
+#     # go to the first corner you see
+#     find_corner(robot)
+#     nn, mm = 333, 333
+#     map = [[2 for j in range(mm)] for i in range(nn)]
+#     while True:
+#         init_state = state = get_robot_state(robot)
+#         stop_watch =
+#         while init_state == state:
+
+
+# def mother_check(robot):
+#     global escape
+#     escape = False
+#     for i in range(len(particles)):
+#         if i == 0:
+#             continue
+#         log('ratiooooo: {0}'.format(len(particles[i]) / constants['M']))
+#         if cmp(0.8 * constants['M'], len(particles[i])) < 0:
+#             escape = True
+#             return
+
+
 def main(robot):
     # setup(robot)
 
@@ -1054,6 +1114,7 @@ def main(robot):
                 LED_mask(robot, '01010101', 1)
                 LED_mask(robot, '10101010', 1)
             break
+        # mother_check(robot)
 
 
 def in_range(x, y):
